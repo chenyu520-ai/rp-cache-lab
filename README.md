@@ -5,9 +5,14 @@
 A small benchmark that measures how the placement of a ~30-token volatile header
 changes DeepSeek's prompt cache hit rate — and therefore your bill.
 
-**One run: moving the header cut steady-state cost by 96%.**
+Two measured results:
+
+- **8-turn run:** moving the header cut steady-state cost by 96%.
+- **30-turn run:** the same change cut the full-session cost by 93%, and revealed
+  that the "minimal fix" quietly decays as conversations get longer.
 
 📄 Write-up: [Your system prompt is silently killing your prompt cache](https://dev.to/chenyu-ai/your-system-prompt-is-silently-killing-your-prompt-cache-28oa)
+📈 Curve analysis: [`curve-analysis.md`](curve-analysis.md)
 
 ---
 
@@ -47,29 +52,67 @@ Every number comes from the API's own `usage` fields —
 
 ## Results
 
-Measured on `deepseek-flash` with thinking disabled, 8 turns per variant.
+### 30-turn run (2026-10-05)
 
-| Variant | Cache hit rate | Total input tokens | Cost for 8 turns | Cost per turn | vs A |
+| Variant | Cache hit rate | Total input tokens | Cumulative cost | Cost per turn | vs A |
 | --- | --- | --- | --- | --- | --- |
-| A | 0.0% | 138,237 | $0.021006 | $0.002626 | — |
-| B | 85.8% | 137,788 | $0.003465 | $0.000433 | −83.5% |
-| C | 86.8% | 138,987 | $0.003326 | $0.000416 | −84.2% |
+| A | 0.0% | 539,113 | $0.081702 | $0.002723 | — |
+| B | 91.4% | 536,080 | $0.009043 | $0.000301 | −88.9% |
+| C | 95.9% | 552,670 | $0.005675 | $0.000189 | −93.1% |
 
-Turn 1 is always a miss in every variant — the cache is cold. Excluding that
-cold start:
+Excluding the cold first turn:
 
 | Variant | Cost per turn | vs A |
 | --- | --- | --- |
-| A | $0.002633 | — |
-| B | $0.000127 | **−95.2%** |
-| C | $0.000107 | **−95.9%** |
+| A | $0.002729 | — |
+| B | $0.000223 | −91.8% |
+| C | $0.000107 | **−96.1%** |
 
-Variant A never had a single cache hit. The entire ~17,000-token prefix was
-reprocessed at full price every turn, because the first ~30 tokens differed.
+### How the win depends on session length
 
-Worth noting: B flatlines at exactly 16,896 cache-hit tokens per turn
-(264 × 64 — 64 appears to be the cache granularity), while C keeps climbing as
-history accumulates. Over a long session, C pulls further ahead.
+The turn-1 miss is unavoidable, so short sessions carry it disproportionately.
+
+| Session length | A avg/turn | C avg/turn | C vs A |
+| --- | --- | --- | --- |
+| 1 turn | $0.002573 | $0.002575 | ~0% |
+| 2 turns | $0.002584 | $0.001342 | −48.0% |
+| 3 turns | $0.002590 | $0.000932 | −64.0% |
+| 5 turns | $0.002602 | $0.000599 | −77.0% |
+| 10 turns | $0.002625 | $0.000350 | −86.7% |
+| 20 turns | $0.002673 | $0.000229 | −91.4% |
+| 30 turns | $0.002723 | $0.000189 | −93.1% |
+
+**If your sessions are 1-2 turns, this change is not worth making.** If they are
+10+, you get the full effect. Details and the full per-turn tables are in
+[`curve-analysis.md`](curve-analysis.md).
+
+### B is not equivalent to C
+
+An 8-turn run makes the "minimal fix" (B) look as good as the proper fix (C) — the
+gap was 0.7 percentage points. Over 30 turns it is structural:
+
+| | Turn 2 | Turn 30 | Change |
+| --- | --- | --- | --- |
+| B hit rate | 98.9% | 90.5% | decaying |
+| C hit rate | 98.7% | 98.7% | flat |
+| B cost/turn | $0.000104 | $0.000333 | **3.2×** |
+| C cost/turn | $0.000110 | $0.000110 | flat |
+
+B's cache-hit tokens are frozen at exactly 16,896 for all 30 turns (264 × 64 — 64
+appears to be the cache granularity). Because its system message changes every
+turn, only the stable block ahead of the header can be reused, and history is
+permanently excluded. C's hit tokens climb from 16,896 to 19,584 because its
+system message is frozen and its history is append-only.
+
+### 8-turn run (2026-10-04)
+
+The original run, kept because the discussion quotes it.
+
+| Variant | Cache hit rate | Cost for 8 turns | Cost per turn | vs A |
+| --- | --- | --- | --- | --- |
+| A | 0.0% | $0.021006 | $0.002626 | — |
+| B | 85.8% | $0.003465 | $0.000433 | −83.5% |
+| C | 86.8% | $0.003326 | $0.000416 | −84.2% |
 
 ## Running it
 
@@ -85,6 +128,9 @@ node bench.js --self-test --dry-run
 # Live run. Needs a DeepSeek API key in the environment.
 export DEEPSEEK_API_KEY=sk-...
 node bench.js
+
+# Longer run (30 turns) — about $0.10
+node bench.js --turns 30 --budget 1.00
 ```
 
 On Windows PowerShell:
@@ -94,9 +140,10 @@ $env:DEEPSEEK_API_KEY = 'sk-...'
 node bench.js
 ```
 
-A default live run sends 24 requests (3 variants × 8 turns), costs roughly
-**$0.03**, and has a hard-coded $0.30 budget guard that refuses to start if the
-worst-case estimate exceeds it.
+A default live run sends 24 requests (3 variants × 8 turns) and costs roughly
+**$0.03**. The 30-turn run sends 90 requests and cost **$0.096**. There is a
+hard budget guard that refuses to start if the worst-case estimate exceeds
+`--budget` (default $0.30).
 
 ### Options
 
@@ -159,17 +206,21 @@ need a chain of thought.
    may overstate cost.
 6. The stable block is synthetic, but its structure and scale are realistic. This
    measures cache behaviour, not model quality.
-7. The projection in the report extrapolates the measured per-turn cost. Real apps
+7. The projection in the reports extrapolates the measured per-turn cost. Real apps
    compress history instead of letting it grow, so absolute figures will differ.
-   The ratio is the finding.
+   The ratio is the finding. Note that this makes the 30-turn numbers a *pessimistic*
+   case for C's benefit, since real history compression would cap the growth.
+8. **One provider only.** The numbers are DeepSeek's. The mechanism — a volatile
+   field above the cacheable prefix invalidating everything downstream — should
+   generalise to any prefix-based cache, but that has not been measured here.
 
 ## Raw data
 
-The full per-turn output of the run quoted above is committed alongside this
-README:
+Full per-turn output for both runs is committed alongside this README:
 
-- `report-2026-10-04T07-55-05.md` — human-readable report
-- `report-2026-10-04T07-55-05.json` — every request's `usage` payload
+- `report-2026-10-05T10-57-29.md` / `.json` — 30-turn run
+- `report-2026-10-04T07-55-05.md` / `.json` — 8-turn run
+- `curve-analysis.md` — the session-length analysis
 
 ## License
 
