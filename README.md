@@ -5,14 +5,19 @@
 A small benchmark that measures how the placement of a ~30-token volatile header
 changes DeepSeek's prompt cache hit rate — and therefore your bill.
 
-Two measured results:
+Three measured results:
 
 - **8-turn run:** moving the header cut steady-state cost by 96%.
 - **30-turn run:** the same change cut the full-session cost by 93%, and revealed
   that the "minimal fix" quietly decays as conversations get longer.
+- **Cache lifetime probe:** the cache was still 99.1% warm after 3 hours, so
+  eviction is not the variable that matters for sessions within a few hours.
 
-📄 Write-up: [Your system prompt is silently killing your prompt cache](https://dev.to/chenyu-ai/your-system-prompt-is-silently-killing-your-prompt-cache-28oa)
-📈 Curve analysis: [`curve-analysis.md`](curve-analysis.md)
+📄 Write-ups:
+[Your system prompt is silently killing your prompt cache](https://dev.to/chenyu-ai/your-system-prompt-is-silently-killing-your-prompt-cache-28oa) ·
+[Your prompt-cache fix is worth 0% if your users only send one message](https://dev.to/chenyu-ai/your-prompt-cache-fix-is-worth-0-if-your-users-only-send-one-message-2b4j)
+
+📈 Analyses: [`curve-analysis.md`](curve-analysis.md) · [`ttl-results.md`](ttl-results.md)
 
 ---
 
@@ -104,6 +109,28 @@ turn, only the stable block ahead of the header can be reused, and history is
 permanently excluded. C's hit tokens climb from 16,896 to 19,584 because its
 system message is frozen and its history is append-only.
 
+### Cache lifetime probe (2026-10-05)
+
+A reader pointed out that the 30-turn run sends turns seconds apart, so nothing
+ever expires — a real session can be spread across hours. This measures eviction
+directly: prime a prefix, wait, then send the byte-identical request again.
+
+| Gap | Hit rate |
+| --- | --- |
+| 2 minutes | 99.1% |
+| 15 minutes | 99.1% |
+| 1 hour | 99.1% |
+| 3 hours | 99.1% |
+
+Each interval used its own freshly primed prefix, and **every prime returned a
+full miss** — that is what establishes the probes were independent rather than
+assuming it.
+
+**Within three hours, eviction is not the variable that matters.** Three hours is
+not the documented ceiling, and the result is provider-specific: a reader
+reported Anthropic's default cache lifetime is 5 minutes, which is a completely
+different regime. Details and limitations in [`ttl-results.md`](ttl-results.md).
+
 ### 8-turn run (2026-10-04)
 
 The original run, kept because the discussion quotes it.
@@ -131,6 +158,10 @@ node bench.js
 
 # Longer run (30 turns) — about $0.10
 node bench.js --turns 30 --budget 1.00
+
+# Cache lifetime sweep — mostly waiting, about a cent of requests
+node ttl-probe.js --dry-run
+node ttl-probe.js --gaps 2,15,60,180
 ```
 
 On Windows PowerShell:
@@ -221,6 +252,8 @@ Full per-turn output for both runs is committed alongside this README:
 - `report-2026-10-05T10-57-29.md` / `.json` — 30-turn run
 - `report-2026-10-04T07-55-05.md` / `.json` — 8-turn run
 - `curve-analysis.md` — the session-length analysis
+- `ttl-results.md` — the cache lifetime sweep
+- `ttl-probe.js` — the script that produced it
 
 ## License
 
