@@ -16,6 +16,7 @@ Three measured results:
 📄 Write-ups:
 [Your system prompt is silently killing your prompt cache](https://dev.to/chenyu-ai/your-system-prompt-is-silently-killing-your-prompt-cache-28oa) ·
 [Your prompt-cache fix is worth 0% if your users only send one message](https://dev.to/chenyu-ai/your-prompt-cache-fix-is-worth-0-if-your-users-only-send-one-message-2b4j)
+[Getting a DeepSeek, GLM or Kimi API key when your phone number and your card are the problem](https://dev.to/chenyu-ai/getting-a-deepseek-glm-or-kimi-api-key-when-your-phone-number-and-your-card-are-the-problem-4p50)
 
 📈 Analyses: [`curve-analysis.md`](curve-analysis.md) · [`ttl-results.md`](ttl-results.md)
 
@@ -254,6 +255,12 @@ Full per-turn output for both runs is committed alongside this README:
 - `curve-analysis.md` — the session-length analysis
 - `ttl-results.md` — the cache lifetime sweep
 - `ttl-probe.js` — the script that produced it
+
+## Who runs this
+
+Maintained by [@chenyu](https://dev.to/chenyu-ai). I also run
+[SwitchLLM](https://switchllm.net) — one OpenAI-compatible key for DeepSeek, GLM
+and Kimi, prepaid from $9.9, no subscription.
 
 ## License
 
