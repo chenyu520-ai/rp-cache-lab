@@ -257,6 +257,11 @@ Full per-turn output for both runs is committed alongside this README:
 - `ttl-results.md` — the cache lifetime sweep
 - `ttl-probe.js` — the script that produced it
 
+## Related tools
+
+- [llm-cost-bench](https://github.com/chenyu520-ai/llm-cost-bench) — measure what a
+  single API request costs across models, instead of what a million tokens cost.
+
 ## Who runs this
 
 Maintained by [@chenyu](https://dev.to/chenyu-ai). I also run
